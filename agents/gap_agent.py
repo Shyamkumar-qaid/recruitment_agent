@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
-from crewai import Agent
+from crewai import Agent, Task
 from tools.llm_tools import LLMTools
 from langchain_community.llms import Ollama
 import os
@@ -31,13 +31,14 @@ class GapAgent:
         # Get model name from environment variable with fallback
         model_name = os.getenv("OLLAMA_MODEL", "phi3")
         
+        # Use the correct format for litellm: prefix the model name with the provider
         self.agent = Agent(
             role='Gap Analysis Expert',
             goal='Analyze gaps between candidate qualifications and job requirements',
             backstory='Specialized in identifying skill gaps and providing recommendations',
             verbose=True,
             allow_delegation=False,
-            llm=Ollama(model=model_name)
+            llm="ollama/phi3"  # Use the litellm format: provider/model
         )
         logger.info(f"Gap Analysis Agent initialized with model: {model_name}")
     
@@ -63,11 +64,47 @@ class GapAgent:
             }
         
         try:
-            # Create a structured prompt for the LLM
-            prompt = self._create_analysis_prompt(resume_data, job_description)
+            # Format resume data for better understanding
+            skills_str = ", ".join(resume_data.get('skills', [])) if isinstance(resume_data.get('skills'), list) else str(resume_data.get('skills', ''))
             
-            # Invoke the LLM
-            raw_result = self.agent.llm.invoke(prompt)
+            # Create a task description with all the necessary information
+            task_description = f"""Analyze the resume against the job description. Identify key gaps.
+
+Job Description:
+{job_description}
+
+Resume Summary:
+- Skills: {skills_str}
+- Experience: {resume_data.get('experience')}
+- Education: {resume_data.get('education')}
+
+Your task is to:
+1. Identify skills mentioned in the job description that are missing from the resume
+2. Identify experience requirements that the candidate may not meet
+3. Highlight the candidate's strengths relative to the job requirements
+4. Provide recommendations for the candidate
+
+Output ONLY a valid JSON object with this structure:
+{{
+  "gaps_summary": "Concise gap analysis summary here",
+  "missing_skills": ["skill1", "skill2"],
+  "experience_gaps": ["gap1", "gap2"],
+  "strengths": ["strength1", "strength2"],
+  "recommendations": ["recommendation1", "recommendation2"]
+}}
+
+NO other text, NO explanations, NO markdown.
+"""
+            
+            # Create a task for the agent to execute
+            analysis_task = Task(
+                description=task_description,
+                expected_output="A JSON object with gap analysis results",
+                agent=self.agent
+            )
+            
+            # Execute the task
+            raw_result = self.agent.execute_task(analysis_task)
             logger.debug(f"LLM raw response received: {raw_result[:100]}...")
             
             # Parse and validate the LLM output
@@ -122,50 +159,6 @@ class GapAgent:
             return False
             
         return True
-    
-    def _create_analysis_prompt(self, resume_data: Dict[str, Any], job_description: str) -> str:
-        """
-        Create a structured prompt for the LLM to analyze gaps.
-        
-        Args:
-            resume_data: Dictionary containing candidate information
-            job_description: String containing the job description
-            
-        Returns:
-            Formatted prompt string
-        """
-        # Format resume data for better LLM understanding
-        skills_str = ", ".join(resume_data.get('skills', [])) if isinstance(resume_data.get('skills'), list) else str(resume_data.get('skills', ''))
-        
-        # Create a structured prompt with clear instructions
-        prompt = f"""Analyze the resume against the job description. Identify key gaps.
-
-Job Description:
-{job_description}
-
-Resume Summary:
-- Skills: {skills_str}
-- Experience: {resume_data.get('experience')}
-- Education: {resume_data.get('education')}
-
-Your task is to:
-1. Identify skills mentioned in the job description that are missing from the resume
-2. Identify experience requirements that the candidate may not meet
-3. Highlight the candidate's strengths relative to the job requirements
-4. Provide recommendations for the candidate
-
-Output ONLY a valid JSON object with this structure:
-{{
-  "gaps_summary": "Concise gap analysis summary here",
-  "missing_skills": ["skill1", "skill2"],
-  "experience_gaps": ["gap1", "gap2"],
-  "strengths": ["strength1", "strength2"],
-  "recommendations": ["recommendation1", "recommendation2"]
-}}
-
-NO other text, NO explanations, NO markdown.
-"""
-        return prompt
     
     def _parse_llm_output(self, raw_output: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """

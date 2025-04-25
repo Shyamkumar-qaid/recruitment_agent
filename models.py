@@ -45,7 +45,7 @@ def get_database_connection():
     """
     # Database credentials
     db_user = os.getenv('DB_USER', 'root')
-    db_password = os.getenv('DB_PASSWORD', '')
+    db_password = os.getenv('DB_PASSWORD', 'root')
     db_host = os.getenv('DB_HOST', 'localhost')
     db_port = os.getenv('DB_PORT', '3306')
     db_name = os.getenv('DB_NAME', 'candidate_db')
@@ -54,18 +54,22 @@ def get_database_connection():
     # Encode password to handle special characters
     encoded_password = quote_plus(db_password)
     
-    # SSL Configuration (if provided)
+    # SSL Configuration (if provided and files exist)
     ssl_args = {}
     ssl_ca = os.getenv('DB_SSL_CA')
     ssl_cert = os.getenv('DB_SSL_CERT')
     ssl_key = os.getenv('DB_SSL_KEY')
     
-    if ssl_ca and ssl_cert and ssl_key:
+    # Only use SSL if all files are specified AND they actually exist
+    if ssl_ca and ssl_cert and ssl_key and os.path.isfile(ssl_ca) and os.path.isfile(ssl_cert) and os.path.isfile(ssl_key):
+        logger.info(f"Using SSL for database connection with certificates: {ssl_ca}, {ssl_cert}, {ssl_key}")
         ssl_args = {
             'ssl_ca': ssl_ca,
             'ssl_cert': ssl_cert,
             'ssl_key': ssl_key
         }
+    else:
+        logger.info("SSL certificates not found or not fully specified, connecting without SSL")
     
     # Construct connection string based on database type
     if db_type == 'mysql':

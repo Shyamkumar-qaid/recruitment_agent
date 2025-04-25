@@ -1,4 +1,4 @@
-from crewai import Agent
+from crewai import Agent, Task
 from langchain_community.llms import Ollama
 from tools.llm_tools import LLMTools
 from typing import Dict, Any, List, Optional, Tuple
@@ -15,14 +15,17 @@ load_dotenv()
 class TechEvalAgent:
     def __init__(self):
         self.llm_tools = LLMTools()
+        # Get model name from environment variable with fallback
+        model_name = os.getenv("OLLAMA_MODEL", "phi3")
+        
         self.agent = Agent(
             role='Technical Evaluation Expert',
             goal='Evaluate technical skills and provide detailed assessment',
             backstory='Expert in technical skill assessment and scoring',
             verbose=True,
             allow_delegation=False,
-            # Ensure Ollama server is running and the model is pulled (e.g. ollama run llama3)
-            llm=Ollama(model="phi3") # Replace with your desired Ollama model
+            # Use the litellm format: provider/model
+            llm="ollama/phi3"
         )
 
     def evaluate(self, candidate_id: int, skills: List[str], job_id: int, job_description: str) -> Dict[str, Any]:
@@ -122,8 +125,15 @@ IMPORTANT: Your response must be valid JSON. Do not include any explanations or 
 """
 
         try:
-            # Get raw response from LLM
-            raw_result = self.agent.llm(prompt)
+            # Create a task for the agent to execute
+            strategy_task = Task(
+                description=prompt,
+                expected_output="A JSON object with evaluation strategy",
+                agent=self.agent
+            )
+            
+            # Execute the task
+            raw_result = self.agent.execute_task(strategy_task)
             logger.debug(f"Raw LLM response: {raw_result[:100]}...")
             
             # Parse and validate the JSON response
@@ -319,7 +329,15 @@ IMPORTANT: Your response must be valid JSON. Do not include any explanations or 
             }}
         }}"""
 
-        raw_result = self.agent.llm(prompt)
+        # Create a task for the agent to execute
+        coding_task = Task(
+            description=prompt,
+            expected_output="A JSON object with coding evaluation",
+            agent=self.agent
+        )
+        
+        # Execute the task
+        raw_result = self.agent.execute_task(coding_task)
         parsed_result = None
         try:
             json_match = re.search(r'\{.*\}', raw_result, re.DOTALL)
@@ -358,7 +376,15 @@ IMPORTANT: Your response must be valid JSON. Do not include any explanations or 
             }}
         }}"""
 
-        raw_result = self.agent.llm(prompt)
+        # Create a task for the agent to execute
+        design_task = Task(
+            description=prompt,
+            expected_output="A JSON object with system design evaluation",
+            agent=self.agent
+        )
+        
+        # Execute the task
+        raw_result = self.agent.execute_task(design_task)
         parsed_result = None
         try:
             json_match = re.search(r'\{.*\}', raw_result, re.DOTALL)
@@ -397,7 +423,15 @@ IMPORTANT: Your response must be valid JSON. Do not include any explanations or 
             }}
         }}"""
 
-        raw_result = self.agent.llm(prompt)
+        # Create a task for the agent to execute
+        behavioral_task = Task(
+            description=prompt,
+            expected_output="A JSON object with behavioral evaluation",
+            agent=self.agent
+        )
+        
+        # Execute the task
+        raw_result = self.agent.execute_task(behavioral_task)
         parsed_result = None
         try:
             json_match = re.search(r'\{.*\}', raw_result, re.DOTALL)

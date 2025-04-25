@@ -11,14 +11,17 @@ class ResumeAgent:
     def __init__(self):
         self.doc_processor = DocumentProcessor()
         self.llm_tools = LLMTools()
+        # Get model name from environment variable with fallback
+        model_name = os.getenv("OLLAMA_MODEL", "phi3")
+        
         self.agent = Agent(
             role='Resume Processing Expert',
             goal='Extract and analyze resume information',
             backstory='Specialized in parsing and understanding resumes',
             verbose=True,
             allow_delegation=False,
-            # Ensure Ollama server is running and the model is pulled (e.g. ollama run phi3)
-            llm=Ollama(model="phi3") # Replace with your desired Ollama model
+            # Use the litellm format: provider/model
+            llm="ollama/phi3"
         )
     
     def process(self, file_path, job_context):
@@ -46,12 +49,42 @@ class ResumeAgent:
             # Extract data from the 'data' key upon success
             entities_data = entities_result.get('data', {})
             
+            # Ensure skills is always a list, even if empty or None
+            skills = entities_data.get('skills', [])
+            if skills is None:
+                skills = []
+            elif not isinstance(skills, list):
+                # Convert to list if it's not already
+                if isinstance(skills, str):
+                    skills = [skill.strip() for skill in skills.split(',') if skill.strip()]
+                else:
+                    skills = [str(skills)]
+            
+            # Ensure experience is always a list
+            experience = entities_data.get('experience', [])
+            if experience is None:
+                experience = []
+            elif not isinstance(experience, list):
+                experience = [experience] if experience else []
+            
+            # Ensure education is always a list
+            education = entities_data.get('education', [])
+            if education is None:
+                education = []
+            elif not isinstance(education, list):
+                education = [education] if education else []
+            
+            # Ensure contact_info is always a dict
+            contact_info = entities_data.get('contact_info', {})
+            if contact_info is None or not isinstance(contact_info, dict):
+                contact_info = {}
+            
             return {
                 'status': 'success',
-                'skills': entities_data.get('skills', []),
-                'experience': entities_data.get('experience', []),
-                'education': entities_data.get('education', []),
-                'contact_info': entities_data.get('contact_info', {}),
+                'skills': skills,
+                'experience': experience,
+                'education': education,
+                'contact_info': contact_info,
                 'embeddings_ref': ','.join(doc_result['vector_ids'])
             }
             

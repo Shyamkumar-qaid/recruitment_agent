@@ -113,10 +113,22 @@ VAULT_ROLE_ID=your_vault_role
 VAULT_SECRET_ID=your_vault_secret
 ```
 
-4. Create MySQL database:
-```sql
-CREATE DATABASE candidate_db;
+4. Set up the database:
+
+You can use the provided script to set up either a SQLite database (for development) or a MySQL database:
+
+```bash
+# For SQLite (recommended for development)
+python setup_database.py --type sqlite
+
+# For MySQL
+python setup_database.py --type mysql --user root --password your_password --host localhost --port 3306 --name candidate_db
 ```
+
+This script will:
+- Create the database if it doesn't exist
+- Create all required tables
+- Update your .env file with the correct database configuration
 
 ## Running the Application
 

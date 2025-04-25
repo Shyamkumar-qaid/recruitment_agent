@@ -11,9 +11,12 @@ ollama>=0.1.8 # Or the latest version you intend to use
 langchain>=0.1.0  # Core LangChain package
 langchain-community>=0.0.38  # Community integrations
 langchain-core>=0.1.0  # Core components
-langchain-text-splitters>=0.0.1  # Text splitting utilities
+# langchain-text-splitters>=0.0.1  # Not needed, use langchain.text_splitter instead
 sentence-transformers>=2.2.2  # Required for HuggingFaceEmbeddings
 pinecone>=4.0.0  # formerly pinecone-client
+crewai>=0.28.0  # Required for agent system
+pypdf>=4.0.0  # Required for PDF processing
+unstructured>=0.10.30  # Required for document processing
 
 # Database
 sqlalchemy>=2.0.27

@@ -1,5 +1,5 @@
 from langchain_community.document_loaders import PyPDFLoader, UnstructuredWordDocumentLoader
-from langchain_text_splitter import RecursiveCharacterTextSplitter
+from langchain.text_splitter import RecursiveCharacterTextSplitter  # Use langchain.text_splitter instead
 from langchain_community.embeddings import HuggingFaceEmbeddings
 # import pinecone # Remove this line
 from pinecone import Pinecone, ServerlessSpec # Add this line
