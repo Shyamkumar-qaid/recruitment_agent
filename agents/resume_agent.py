@@ -50,15 +50,22 @@ class ResumeAgent:
             entities_data = entities_result.get('data', {})
             
             # Ensure skills is always a list, even if empty or None
-            skills = entities_data.get('skills', [])
-            if skills is None:
-                skills = []
-            elif not isinstance(skills, list):
-                # Convert to list if it's not already
-                if isinstance(skills, str):
-                    skills = [skill.strip() for skill in skills.split(',') if skill.strip()]
-                else:
-                    skills = [str(skills)]
+            try:
+                skills = entities_data.get('skills', [])
+                if skills is None:
+                    skills = []
+                elif not isinstance(skills, list):
+                    # Convert to list if it's not already
+                    if isinstance(skills, str):
+                        skills = [skill.strip() for skill in skills.split(',') if skill.strip()]
+                    else:
+                        skills = [str(skills)]
+                # Make sure we have at least one skill if the list is empty
+                if len(skills) == 0:
+                    skills = ["No specific skills identified"]
+            except Exception as e:
+                # Fallback to a safe default if any error occurs
+                skills = ["Error processing skills"]
             
             # Ensure experience is always a list
             experience = entities_data.get('experience', [])
@@ -79,6 +86,10 @@ class ResumeAgent:
             if contact_info is None or not isinstance(contact_info, dict):
                 contact_info = {}
             
+            # Final validation before returning
+            if not isinstance(skills, list):
+                skills = ["Error: skills not properly formatted"]
+            
             return {
                 'status': 'success',
                 'skills': skills,
@@ -89,6 +100,8 @@ class ResumeAgent:
             }
             
         except Exception as e:
+            import logging
+            logging.exception(f"Error in ResumeAgent.process: {str(e)}")
             return {
                 'status': 'error',
                 'error': str(e)

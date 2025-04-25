@@ -111,12 +111,26 @@ class AnalysisCoordinator:
                 raise Exception(gap_result['error'])
             
             # Initial screening decision
-            screening_result = self._evaluate_screening(
-                session=session,
-                candidate_id=candidate.id,
-                skills=resume_result['skills'],
-                gap_analysis=gap_result['analysis']
-            )
+            try:
+                # Ensure skills is a list before passing to screening
+                skills_for_screening = resume_result.get('skills', [])
+                if skills_for_screening is None or not isinstance(skills_for_screening, list):
+                    skills_for_screening = ["No specific skills identified"]
+                
+                screening_result = self._evaluate_screening(
+                    session=session,
+                    candidate_id=candidate.id,
+                    skills=skills_for_screening,
+                    gap_analysis=gap_result['analysis']
+                )
+            except Exception as e:
+                self.log_audit(
+                    session=session,
+                    candidate_id=candidate.id,
+                    action='error',
+                    details={'stage': 'screening_evaluation', 'error': str(e)}
+                )
+                raise Exception(f"Error during screening evaluation: {str(e)}")
             
             if not screening_result['proceed']:
                 candidate.status = 'Rejected'
@@ -135,16 +149,27 @@ class AnalysisCoordinator:
                 }
             
             # Perform technical evaluation with validated skills
-            skills = resume_result.get('skills', [])
-            if skills is None or not isinstance(skills, list):
-                skills = []
-                
-            tech_result = self.tech_agent.evaluate(
-                candidate_id=candidate.id,
-                skills=skills,
-                job_id=job_id,
-                job_description=job_description_content # Added job description
-            )
+            try:
+                skills = resume_result.get('skills', [])
+                if skills is None or not isinstance(skills, list):
+                    skills = ["No specific skills identified"]
+                elif len(skills) == 0:
+                    skills = ["No specific skills identified"]
+                    
+                tech_result = self.tech_agent.evaluate(
+                    candidate_id=candidate.id,
+                    skills=skills,
+                    job_id=job_id,
+                    job_description=job_description_content # Added job description
+                )
+            except Exception as e:
+                self.log_audit(
+                    session=session,
+                    candidate_id=candidate.id,
+                    action='error',
+                    details={'stage': 'technical_evaluation_preparation', 'error': str(e)}
+                )
+                raise Exception(f"Error preparing for technical evaluation: {str(e)}")
             if tech_result.get('status') == 'error':
                 self.log_audit(
                     session=session,
@@ -154,15 +179,31 @@ class AnalysisCoordinator:
                 )
                 raise Exception(tech_result['error'])
             
-            # Update candidate record
-            candidate.skills = resume_result['skills']
-            candidate.experience = resume_result['experience']
-            candidate.education = resume_result['education']
-            candidate.contact_info = resume_result['contact_info']
-            candidate.embeddings_ref = resume_result['embeddings_ref']
-            candidate.gap_analysis = gap_result['analysis']
-            candidate.technical_score = tech_result['score']
-            candidate.technical_feedback = tech_result['feedback']
+            # Update candidate record with validation
+            try:
+                # Ensure skills is a list
+                skills_to_save = resume_result.get('skills', [])
+                if skills_to_save is None or not isinstance(skills_to_save, list):
+                    skills_to_save = ["No specific skills identified"]
+                elif len(skills_to_save) == 0:
+                    skills_to_save = ["No specific skills identified"]
+                
+                candidate.skills = skills_to_save
+                candidate.experience = resume_result.get('experience', [])
+                candidate.education = resume_result.get('education', [])
+                candidate.contact_info = resume_result.get('contact_info', {})
+                candidate.embeddings_ref = resume_result.get('embeddings_ref', '')
+                candidate.gap_analysis = gap_result.get('analysis', {})
+                candidate.technical_score = tech_result.get('score', 0)
+                candidate.technical_feedback = tech_result.get('feedback', {})
+            except Exception as e:
+                self.log_audit(
+                    session=session,
+                    candidate_id=candidate.id,
+                    action='error',
+                    details={'stage': 'candidate_record_update', 'error': str(e)}
+                )
+                raise Exception(f"Error updating candidate record: {str(e)}")
             
             # Make final decision
             final_decision = self._make_final_decision(
@@ -206,9 +247,19 @@ class AnalysisCoordinator:
         try:
             # Validate inputs
             if skills is None:
-                skills = []
+                skills = ["No specific skills identified"]
             elif not isinstance(skills, list):
-                skills = [str(skills)]
+                try:
+                    if isinstance(skills, str):
+                        skills = [skill.strip() for skill in skills.split(',') if skill.strip()]
+                    else:
+                        skills = [str(skills)]
+                except Exception:
+                    skills = ["Error processing skills"]
+            
+            # Ensure we have at least one skill
+            if len(skills) == 0:
+                skills = ["No specific skills identified"]
                 
             if gap_analysis is None:
                 gap_analysis = {}
