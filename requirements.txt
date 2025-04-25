@@ -1,0 +1,43 @@
+# Core
+fastapi>=0.109.0
+uvicorn[standard]>=0.29.0
+streamlit>=1.33.0
+python-dotenv>=1.0.1
+# crewai
+# pypdf
+
+# AI/ML
+ollama>=0.1.8 # Or the latest version you intend to use
+langchain>=0.1.0  # Core LangChain package
+langchain-community>=0.0.38  # Community integrations
+langchain-core>=0.1.0  # Core components
+langchain-text-splitters>=0.0.1  # Text splitting utilities
+sentence-transformers>=2.2.2  # Required for HuggingFaceEmbeddings
+pinecone>=4.0.0  # formerly pinecone-client
+
+# Database
+sqlalchemy>=2.0.27
+mysql-connector-python>=8.3.0
+alembic>=1.13.1
+
+# Security
+bcrypt>=4.1.2
+python-jose[cryptography]>=3.3.0
+
+# Monitoring
+sentry-sdk>=2.1.1
+prometheus-client>=0.21.1
+# ratelimit
+
+# Utilities
+structlog>=24.1.0
+python-box>=7.1.1
+python-multipart>=0.0.9
+
+# Testing
+pytest>=8.1.1
+pytest-asyncio>=0.23.5
+httpx>=0.27.0
+
+# Dependency resolution fixes
+pyasn1>=0.6.1,<0.7.0  # Required by pyasn1-modules 0.4.2

@@ -1,0 +1,17 @@
+Job Title: Software Engineer
+
+Responsibilities:
+- Design, develop, and maintain software applications.
+- Collaborate with cross-functional teams.
+- Write clean, scalable code.
+
+Required Skills:
+- Python
+- FastAPI
+- Docker
+- SQL
+
+Preferred Skills:
+- Experience with cloud platforms (AWS, Azure, GCP)
+- Knowledge of CI/CD pipelines
+- Familiarity with Agile methodologies

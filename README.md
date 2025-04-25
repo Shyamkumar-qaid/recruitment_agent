@@ -137,18 +137,28 @@ streamlit run main.py
 ## Project Structure
 
 ```
-├── main.py           # Streamlit UI
-├── api.py            # FastAPI endpoints
-├── models.py         # SQLAlchemy models
+├── main.py                    # Streamlit UI
+├── api.py                     # FastAPI endpoints
+├── models.py                  # SQLAlchemy models
+├── .gitignore                 # Git ignore file
+├── requirements.txt           # Project dependencies
+├── DOCUMENTATION.md           # Detailed documentation
+├── update_dependencies.py     # Dependency resolution script
+├── update_langchain_imports.py # LangChain import updater
+├── update_environment.bat     # Environment setup script for Windows
 ├── agents/
-│   ├── orchestrator.py    # Analysis coordinator
-│   ├── resume_agent.py    # Resume processing
-│   ├── gap_agent.py      # Gap analysis
-│   └── tech_eval_agent.py # Technical evaluation
+│   ├── orchestrator.py        # Analysis coordinator
+│   ├── resume_agent.py        # Resume processing
+│   ├── gap_agent.py           # Gap analysis
+│   └── tech_eval_agent.py     # Technical evaluation
 ├── tools/
 │   ├── document_processing.py # Document handling
-│   └── llm_tools.py          # LLM utilities
-└── uploads/         # Temporary file storage
+│   ├── llm_tools.py           # LLM utilities
+│   ├── security_middleware.py # API security features
+│   └── logging_handler.py     # Structured logging
+├── uploads/                   # Temporary file storage
+├── logs/                      # Application logs
+└── job_descriptions/          # Sample job descriptions
 ```
 
 ## Technologies Used
@@ -161,6 +171,32 @@ streamlit run main.py
 - Pinecone
 - MySQL
 
+## Version Control
+
+This project uses Git for version control. A `.gitignore` file is included to prevent unnecessary files from being tracked:
+
+- **Excluded files**: Python bytecode, virtual environments, IDE files, logs, uploads, and sensitive configuration
+- **Included directories**: Empty directories needed for the application structure are preserved with `.gitkeep` files
+
+### Initial Setup for Version Control
+
+```bash
+# Initialize a new Git repository
+git init
+
+# Add all files (respecting .gitignore)
+git add .
+
+# Create initial commit
+git commit -m "Initial commit"
+
+# Add a remote repository (replace with your repository URL)
+git remote add origin https://github.com/yourusername/ai-resume-analyzer.git
+
+# Push to the remote repository
+git push -u origin main
+```
+
 ## License
 
-MIT
+QAID Software Private Limited
