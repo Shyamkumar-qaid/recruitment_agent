@@ -121,12 +121,20 @@ def get_candidate(candidate_id: int):
         if not candidate:
             raise HTTPException(status_code=404, detail="Candidate not found")
         
+        # Format technical score to ensure it's a number
+        technical_score = candidate.technical_score
+        if technical_score is None:
+            technical_score = 0
+            
         return {
             'id': candidate.id,
             'status': candidate.status,
-            'technical_score': candidate.technical_score,
+            'technical_score': technical_score,
             'gap_analysis': candidate.gap_analysis,
-            'created_at': candidate.created_at
+            'application_date': candidate.application_date.isoformat() if candidate.application_date else None,
+            'skills': candidate.skills,
+            'experience': candidate.experience,
+            'education': candidate.education
         }
     finally:
         session.close()

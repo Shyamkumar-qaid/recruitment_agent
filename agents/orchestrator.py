@@ -49,6 +49,14 @@ class AnalysisCoordinator:
     def process_application(self, resume_path: str, job_id: str, job_description_content: str) -> Dict[str, Any]: # Changed job_id type to str
         """Main entry point for processing a new application"""
         session = Session()
+        # Initialize progress tracking
+        progress_steps = [
+            {"name": "Resume Processing", "status": "pending", "description": "Extracting information from resume"},
+            {"name": "Gap Analysis", "status": "pending", "description": "Analyzing gaps between qualifications and requirements"},
+            {"name": "Technical Evaluation", "status": "pending", "description": "Evaluating technical skills"},
+            {"name": "Final Decision", "status": "pending", "description": "Making final recommendation"}
+        ]
+        
         try:
             # Create new candidate record
             candidate = Candidate(
@@ -68,8 +76,10 @@ class AnalysisCoordinator:
             )
             
             # Process resume
+            progress_steps[0]["status"] = "in_progress"
             resume_result = self.resume_agent.process(resume_path, {'job_id': job_id})
             if resume_result.get('status') == 'error':
+                progress_steps[0]["status"] = "error"
                 self.log_audit(
                     session=session,
                     candidate_id=candidate.id,
@@ -77,6 +87,7 @@ class AnalysisCoordinator:
                     details={'stage': 'resume_processing', 'error': resume_result['error']}
                 )
                 raise Exception(resume_result['error'])
+            progress_steps[0]["status"] = "completed"
             
             # Perform gap analysis
             # Prepare data for gap analysis with validation
@@ -97,11 +108,13 @@ class AnalysisCoordinator:
                 'experience': experience,
                 'education': education
             }
+            progress_steps[1]["status"] = "in_progress"
             gap_result = self.gap_agent.analyze(
                 resume_data=resume_data_for_gap,
                 job_description=job_description_content
             )
             if gap_result.get('status') == 'error':
+                progress_steps[1]["status"] = "error"
                 self.log_audit(
                     session=session,
                     candidate_id=candidate.id,
@@ -109,6 +122,7 @@ class AnalysisCoordinator:
                     details={'stage': 'gap_analysis', 'error': gap_result['error']}
                 )
                 raise Exception(gap_result['error'])
+            progress_steps[1]["status"] = "completed"
             
             # Initial screening decision
             try:
@@ -156,6 +170,7 @@ class AnalysisCoordinator:
                 elif len(skills) == 0:
                     skills = ["No specific skills identified"]
                     
+                progress_steps[2]["status"] = "in_progress"
                 tech_result = self.tech_agent.evaluate(
                     candidate_id=candidate.id,
                     skills=skills,
@@ -163,6 +178,7 @@ class AnalysisCoordinator:
                     job_description=job_description_content # Added job description
                 )
             except Exception as e:
+                progress_steps[2]["status"] = "error"
                 self.log_audit(
                     session=session,
                     candidate_id=candidate.id,
@@ -171,6 +187,7 @@ class AnalysisCoordinator:
                 )
                 raise Exception(f"Error preparing for technical evaluation: {str(e)}")
             if tech_result.get('status') == 'error':
+                progress_steps[2]["status"] = "error"
                 self.log_audit(
                     session=session,
                     candidate_id=candidate.id,
@@ -178,6 +195,7 @@ class AnalysisCoordinator:
                     details={'stage': 'technical_evaluation', 'error': tech_result['error']}
                 )
                 raise Exception(tech_result['error'])
+            progress_steps[2]["status"] = "completed"
             
             # Update candidate record with validation
             try:
@@ -206,22 +224,30 @@ class AnalysisCoordinator:
                 raise Exception(f"Error updating candidate record: {str(e)}")
             
             # Make final decision
-            final_decision = self._make_final_decision(
-                session=session,
-                candidate_id=candidate.id,
-                # resume_score is not directly available from resume_result, relying on gap and tech score
-                gap_analysis=gap_result['analysis'], 
-                technical_score=tech_result['score']
-            )
-            
-            candidate.status = final_decision['next_step']
-            session.commit()
+            progress_steps[3]["status"] = "in_progress"
+            try:
+                final_decision = self._make_final_decision(
+                    session=session,
+                    candidate_id=candidate.id,
+                    # resume_score is not directly available from resume_result, relying on gap and tech score
+                    gap_analysis=gap_result['analysis'], 
+                    technical_score=tech_result['score']
+                )
+                
+                candidate.status = final_decision['next_step']
+                session.commit()
+                progress_steps[3]["status"] = "completed"
+            except Exception as e:
+                progress_steps[3]["status"] = "error"
+                raise e
             
             return {
                 'status': 'success',
                 'candidate_id': candidate.id,
                 'next_step': final_decision['next_step'],
-                'details': final_decision['details']
+                'details': final_decision['details'],
+                'technical_score': tech_result.get('score', 0),
+                'progress_steps': progress_steps
             }
             
         except Exception as e:
@@ -237,7 +263,8 @@ class AnalysisCoordinator:
                 )
             return {
                 'status': 'error',
-                'error': str(e)
+                'error': str(e),
+                'progress_steps': progress_steps
             }
         finally:
             session.close()

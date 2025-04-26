@@ -87,13 +87,24 @@ if st.button("Analyze Resume", type="primary", disabled=not (job_id and resume_f
                     # Success message
                     st.success("Resume analysis completed!")
                     
+                    # Display progress steps if available
+                    if 'progress_steps' in result:
+                        st.subheader("Analysis Process")
+                        for step in result['progress_steps']:
+                            status_icon = "✅" if step['status'] == "completed" else "❌" if step['status'] == "error" else "⏳" if step['status'] == "in_progress" else "⏱️"
+                            st.write(f"{status_icon} **{step['name']}**: {step['description']}")
+                    
                     # Display results
                     col1, col2 = st.columns(2)
                     
                     with col1:
+                        # First try to get technical_score from the initial result
+                        tech_score = result.get('technical_score', 0)
+                        
+                        # If it's not there, we'll fetch it from the detailed results later
                         st.metric(
                             "Technical Score",
-                            f"{result.get('technical_score', 0)}%"
+                            f"{tech_score}%"
                         )
                     
                     with col2:
@@ -106,6 +117,14 @@ if st.button("Analyze Resume", type="primary", disabled=not (job_id and resume_f
                     details = requests.get(
                         f"http://localhost:8000/candidate/{result['candidate_id']}"
                     ).json()
+                    
+                    # Update technical score if it's available in the detailed results
+                    if 'technical_score' in details and details['technical_score'] is not None:
+                        # Update the previously displayed metric
+                        col1.metric(
+                            "Technical Score",
+                            f"{details['technical_score']}%"
+                        )
                     
                     # Display gap analysis
                     if 'gap_analysis' in details:
