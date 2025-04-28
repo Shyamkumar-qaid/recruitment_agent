@@ -1,4 +1,3 @@
-from langchain_community.llms import Ollama
 from langchain.chains import LLMChain
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
@@ -9,6 +8,9 @@ import json
 import re
 import logging
 from dotenv import load_dotenv
+
+# Import the centralized LLM service
+from services.llm_service import LLMService, create_llm_service
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -41,14 +43,30 @@ class LLMTools:
     parsing LLM outputs, and handling common LLM-related tasks.
     """
     
-    def __init__(self):
-        """Initialize LLM tools with configured model."""
-        # Get model name from environment variable with fallback
-        model_name = os.getenv("OLLAMA_MODEL", "phi3")
-        # Use the correct format for litellm
-        self.llm = Ollama(model="phi3")
+    def __init__(self, model_config=None):
+        """
+        Initialize LLM tools with configured model.
+        
+        Args:
+            model_config: Dictionary containing model configuration
+                - provider: LLM provider name (ollama, openai, openrouter, huggingface)
+                - api_key: API key for the provider
+                - model_name: Name of the model to use
+                - base_url: Base URL for the provider API (optional)
+                - temperature: Temperature for text generation (default: 0.2)
+                - max_tokens: Maximum tokens to generate (optional)
+        """
+        # Create LLM service from model config
+        self.llm_service = create_llm_service(model_config)
+        
+        # Store the LLM from the service for compatibility with existing code
+        self.llm = self.llm_service.llm
+        
+        # Store model config for reference
+        self.model_config = model_config or {}
+        
+        # Initialize Pydantic parser
         self.parser = PydanticOutputParser(pydantic_object=ResumeEntities)
-        logger.info(f"LLM Tools initialized with model: {model_name}")
     
     def _normalize_resume_keys(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -174,115 +192,28 @@ class LLMTools:
         Returns:
             Dictionary with extraction results or error information
         """
-        # Truncate text if too long to avoid LLM context limits
-        max_length = 8000  # Adjust based on your model's context window
-        if len(text) > max_length:
-            logger.warning(f"Resume text truncated from {len(text)} to {max_length} characters")
-            text = text[:max_length] + "..."
+        # Import the enhanced resume parser
+        from tools.resume_parser import ResumeParser
         
-        # Create a structured prompt with clear instructions
-        prompt = PromptTemplate(
-            input_variables=["text"],
-            template="""Extract the following information from this resume:
-
-1. Skills: A list of technical and soft skills (return as array of strings)
-2. Experience: A list of work experiences (return as array of objects with company, role, dates, and description fields)
-3. Education: A list of educational qualifications (return as array of objects with institution, degree, and dates fields)
-4. Contact Info: Contact information (return as object with email, phone, and location fields)
-
-IMPORTANT FORMATTING INSTRUCTIONS:
-- Use ONLY lowercase keys in your response: skills, experience, education, contact_info
-- Return skills as an array of strings, even if there's only one skill
-- Return experience and education as arrays of objects, even if there's only one entry
-- Return contact_info as a single object
-- Ensure all JSON is properly formatted with double quotes around keys and string values
-- Do not use single quotes in your JSON
-- Do not include any explanations or text outside the JSON object
-
-Resume:
-{text}
-
-{format_instructions}
-
-RESPONSE FORMAT:
-{{
-  "skills": ["skill1", "skill2", ...],
-  "experience": [
-    {{
-      "company": "Company Name",
-      "role": "Job Title",
-      "dates": "Date Range",
-      "description": "Job Description"
-    }},
-    ...
-  ],
-  "education": [
-    {{
-      "institution": "School Name",
-      "degree": "Degree Name",
-      "dates": "Date Range"
-    }},
-    ...
-  ],
-  "contact_info": {{
-    "email": "email@example.com",
-    "phone": "123-456-7890",
-    "location": "City, State"
-  }}
-}}""",
-            partial_variables={"format_instructions": self.parser.get_format_instructions()}
-        )
-        
-        result = None
         try:
-            # Get raw response from LLM using the newer API pattern
-            chain = prompt | self.llm
-            result = chain.invoke({"text": text})
-            logger.debug(f"Raw LLM response: {result[:100]}...")
+            # Create a resume parser with the current LLM service
+            parser = ResumeParser(llm_service=self.llm_service)
             
-            # Parse the JSON response with multiple fallback strategies
-            parsed_data, error = self._parse_json_with_fallbacks(result)
+            # Parse the resume
+            parsed_data = parser.parse(text)
             
-            if error:
-                logger.error(f"JSON parsing error: {error}")
-                # Try one more time with a simpler prompt as fallback
-                try:
-                    logger.info("Attempting fallback extraction with simpler prompt")
-                    fallback_prompt = f"""Extract skills, experience, education, and contact info from this resume. Return as JSON.
-                    
-Resume:
-{text[:4000]}
-
-Format:
-{{
-  "skills": ["skill1", "skill2"],
-  "experience": [{{ "company": "Company", "role": "Role" }}],
-  "education": [{{ "institution": "School", "degree": "Degree" }}],
-  "contact_info": {{ "email": "email" }}
-}}"""
-                    
-                    fallback_result = self.llm(fallback_prompt)
-                    parsed_data, error = self._parse_json_with_fallbacks(fallback_result)
-                    
-                    if error:
-                        return {
-                            'status': 'json_error',
-                            'error': error,
-                            'raw_output': result[:1000]  # Limit output size
-                        }
-                except Exception as e:
-                    logger.error(f"Fallback extraction failed: {str(e)}")
-                    return {
-                        'status': 'json_error',
-                        'error': error,
-                        'raw_output': result[:1000]  # Limit output size
-                    }
+            if not parsed_data:
+                logger.error("Resume parsing failed")
+                return {
+                    'status': 'error',
+                    'error': 'Failed to parse resume content'
+                }
             
-            # Normalize keys to handle variations
+            # Normalize the parsed data
             normalized_data = self._normalize_resume_keys(parsed_data)
             
+            # Validate against our Pydantic model
             try:
-                # Validate against our Pydantic model
                 validated = ResumeEntities(**normalized_data)
                 logger.info("Successfully extracted and validated resume entities")
                 return {'status': 'success', 'data': validated.dict()}
@@ -311,14 +242,18 @@ Format:
                 except Exception as fix_error:
                     logger.error(f"Failed to fix validation issues: {str(fix_error)}")
                     return self._handle_validation_error(e, normalized_data)
-                
+            
+            # If validation passes, return the normalized data
+            return {
+                'status': 'success',
+                'data': normalized_data
+            }
+            
         except Exception as e:
-            logger.exception("Unexpected error during entity extraction")
+            logger.exception(f"Error extracting entities: {str(e)}")
             return {
                 'status': 'error',
-                'error': str(e),
-                'error_type': type(e).__name__,
-                'raw_output': result[:1000] if result else None
+                'error': str(e)
             }
     
     def _parse_json_with_fallbacks(self, text: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
@@ -427,9 +362,16 @@ Format:
         return None, "Failed to parse LLM output as JSON after multiple attempts"
 
 class GapAgent:
-    def __init__(self, llm_tools: LLMTools):
-        self.tools = llm_tools
-        self.llm = Ollama(model="phi3")
+    def __init__(self, llm_tools: LLMTools = None, model_config=None):
+        if llm_tools:
+            self.tools = llm_tools
+            self.llm_service = llm_tools.llm_service
+        else:
+            self.tools = LLMTools(model_config)
+            self.llm_service = self.tools.llm_service
+        
+        # Store the LLM from the service for compatibility with existing code
+        self.llm = self.llm_service.llm
 
     def _validate_input(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Validate and normalize input data with detailed error reporting"""
@@ -446,6 +388,9 @@ class GapAgent:
 
     def analyze(self, resume_data: Dict[str, Any], job_description: str) -> Dict[str, Any]:
         """Main analysis workflow with enhanced error handling"""
+        # Import the gap analysis template
+        from templates.gap_analysis_templates import GAP_ANALYSIS_TEMPLATE
+        
         validation = self._validate_input(resume_data)
         if not validation['is_valid']:
             return {
@@ -455,35 +400,15 @@ class GapAgent:
             }
 
         try:
-            prompt = PromptTemplate(
-                input_variables=["profile", "job_desc"],
-                template="""Analyze gaps between candidate profile and job requirements.
-
-Candidate Profile: {profile}
-Job Description: {job_desc}
-
-IMPORTANT FORMATTING INSTRUCTIONS:
-- Return a valid JSON object with the following structure
-- Use double quotes for all strings and keys
-- Ensure all arrays are properly formatted, even if empty
-
-Output format:
-{{
-  "gap_summary": "Concise summary of the candidate's fit for the role",
-  "missing_skills": ["skill1", "skill2"],
-  "missing_experience": ["experience gap 1", "experience gap 2"],
-  "strengths": ["strength1", "strength2"]
-}}
-
-NO other text, NO explanations, NO markdown."""
+            # Use the template from the templates module
+            raw_result = self.llm_service.run_prompt_template(
+                GAP_ANALYSIS_TEMPLATE,
+                {
+                    "profile": json.dumps(validation['data']),
+                    "job_desc": job_description
+                }
             )
             
-            # Use the newer API pattern
-            chain = prompt | self.llm
-            raw_result = chain.invoke({
-                "profile": json.dumps(validation['data']),
-                "job_desc": job_description
-            })
             return self._parse_output(raw_result)
             
         except Exception as e:
@@ -496,16 +421,15 @@ NO other text, NO explanations, NO markdown."""
     def _parse_output(self, raw_result: str) -> Dict[str, Any]:
         """Parse and validate analysis output"""
         try:
-            # First try direct JSON parsing
-            try:
-                result = json.loads(raw_result)
-            except json.JSONDecodeError:
-                # If that fails, try to extract JSON using regex
-                json_match = re.search(r'\{.*\}', raw_result, re.DOTALL)
-                if json_match:
-                    result = json.loads(json_match.group(0))
-                else:
-                    raise json.JSONDecodeError("No JSON found in output", raw_result, 0)
+            # Use the LLM service's JSON parser
+            result = self.llm_service.parse_json_output(raw_result)
+            
+            if not result:
+                return {
+                    'status': 'invalid_json',
+                    'error': "Failed to parse LLM output as JSON",
+                    'raw_output': raw_result[:500]  # Truncate for safety
+                }
             
             # Check for required keys
             required_keys = ['gap_summary', 'missing_skills', 'missing_experience', 'strengths']
@@ -520,7 +444,7 @@ NO other text, NO explanations, NO markdown."""
                         result[key] = []
             
             # Ensure all list fields are actually lists
-            list_fields = ['missing_skills', 'missing_experience', 'strengths']
+            list_fields = ['missing_skills', 'missing_experience', 'strengths', 'improvements', 'recommendations']
             for field in list_fields:
                 if field in result and not isinstance(result[field], list):
                     if result[field] is None or result[field] == "":
@@ -531,12 +455,6 @@ NO other text, NO explanations, NO markdown."""
             
             return {'status': 'success', 'analysis': result}
             
-        except json.JSONDecodeError as e:
-            return {
-                'status': 'invalid_json',
-                'error': f"Analysis output is not valid JSON: {str(e)}",
-                'raw_output': raw_result[:500]  # Truncate for safety
-            }
         except Exception as e:
             return {
                 'status': 'error',

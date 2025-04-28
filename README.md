@@ -8,8 +8,10 @@ An intelligent resume analysis system that uses AI to process resumes, evaluate 
 - Technical skill evaluation
 - Gap analysis against job requirements
 - Vector embeddings for semantic search
-- Modern Streamlit UI
+- Modern Streamlit UI with progress tracking
 - RESTful API with FastAPI
+- Support for both local LLM models (Ollama) and OpenAI models
+- Job description management directly from the UI
 
 ## Setup
 
@@ -208,6 +210,21 @@ git remote add origin https://github.com/yourusername/ai-resume-analyzer.git
 # Push to the remote repository
 git push -u origin main
 ```
+
+## Recent Updates
+
+### New Features
+- **OpenAI Integration**: Added support for OpenAI models alongside local Ollama models
+- **Job Description Management**: Job descriptions can now be created and managed directly from the UI
+- **Auto-generated Job IDs**: Job IDs are now automatically generated based on job title and experience requirements
+- **Enhanced Resume Parsing**: Improved resume parsing accuracy with a new multi-strategy approach
+- **Progress Tracking UI**: Added a visual stepper to track the progress of resume analysis
+- **Database Schema Updates**: Added a new table for storing job descriptions
+
+### Bug Fixes
+- Fixed issues with resume parsing accuracy
+- Improved error handling for missing dependencies
+- Enhanced data validation to prevent database errors
 
 ## License
 

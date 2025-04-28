@@ -1,5 +1,4 @@
 from crewai import Agent, Task
-from langchain_community.llms import Ollama
 from tools.llm_tools import LLMTools
 from typing import Dict, Any, List, Optional, Tuple
 import os
@@ -9,14 +8,41 @@ import logging
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 
+# Import the centralized LLM service
+from services.llm_service import create_llm_service
+
 # It's generally better to call load_dotenv() at the module level
 load_dotenv()
 
 class TechEvalAgent:
-    def __init__(self):
-        self.llm_tools = LLMTools()
-        # Get model name from environment variable with fallback
-        model_name = os.getenv("OLLAMA_MODEL", "phi3")
+    def __init__(self, model_config=None):
+        self.model_config = model_config or {}
+        self.llm_tools = LLMTools(model_config)
+        
+        # Create LLM service from model config
+        self.llm_service = create_llm_service(model_config)
+        
+        # Get provider and model name for CrewAI agent
+        provider = self.model_config.get("provider", "ollama").lower()
+        
+        # Map provider to CrewAI format
+        provider_map = {
+            "ollama": "ollama",
+            "openai": "openai",
+            "openrouter": "openai",  # OpenRouter uses OpenAI-compatible API
+            "huggingface": "huggingface"
+        }
+        
+        crewai_provider = provider_map.get(provider, "ollama")
+        model_name = self.model_config.get("model_name", os.getenv("OLLAMA_MODEL", "phi3"))
+        
+        # Set API keys directly
+        if provider in ["openai", "openrouter"] and "api_key" in self.model_config:
+            os.environ["OPENAI_API_KEY"] = self.model_config["api_key"]
+            print(f"Set OPENAI_API_KEY environment variable for {provider} in TechEvalAgent.__init__")
+            
+        # Initialize CrewAI agent with the appropriate provider/model
+        print(f"Initializing TechEvalAgent with {crewai_provider}/{model_name}")
         
         self.agent = Agent(
             role='Technical Evaluation Expert',
@@ -24,9 +50,9 @@ class TechEvalAgent:
             backstory='Expert in technical skill assessment and scoring',
             verbose=True,
             allow_delegation=False,
-            # Use the litellm format: provider/model
-            llm="ollama/phi3"
+            llm=f"{crewai_provider}/{model_name}"
         )
+        print(f"TechEvalAgent initialized with {crewai_provider} model: {model_name}")
 
     def evaluate(self, candidate_id: int, skills: List[str], job_id: int, job_description: str) -> Dict[str, Any]:
         """Comprehensive technical evaluation including coding, system design, and behavioral assessment, considering the job description."""
@@ -168,51 +194,8 @@ IMPORTANT: Your response must be valid JSON. Do not include any explanations or 
         Returns:
             Parsed JSON object or None if parsing fails
         """
-        if not text:
-            return None
-            
-        # Strategy 1: Try to parse the entire text as JSON
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
-            
-        # Strategy 2: Look for JSON-like structure with regex
-        try:
-            json_match = re.search(r'\{.*\}', text, re.DOTALL)
-            if json_match:
-                return json.loads(json_match.group(0))
-        except json.JSONDecodeError:
-            pass
-            
-        # Strategy 3: Look for JSON with triple backticks (common in LLM outputs)
-        try:
-            code_blocks = re.findall(r'```(?:json)?\s*([\s\S]*?)\s*```', text)
-            if code_blocks:
-                for block in code_blocks:
-                    try:
-                        return json.loads(block)
-                    except json.JSONDecodeError:
-                        continue
-        except Exception:
-            pass
-            
-        # Strategy 4: Try to fix common JSON errors and parse again
-        try:
-            # Replace single quotes with double quotes (common LLM mistake)
-            fixed_text = re.sub(r"'([^']*)':\s*", r'"\1": ', text)
-            # Fix boolean values
-            fixed_text = re.sub(r':\s*True', ': true', fixed_text)
-            fixed_text = re.sub(r':\s*False', ': false', fixed_text)
-            
-            # Try to find and parse JSON in the fixed text
-            json_match = re.search(r'\{.*\}', fixed_text, re.DOTALL)
-            if json_match:
-                return json.loads(json_match.group(0))
-        except json.JSONDecodeError:
-            pass
-            
-        return None
+        # Use the LLM service's JSON parser
+        return self.llm_service.parse_json_output(text)
     
     def _validate_against_schema(self, data: Dict[str, Any], schema: Dict[str, type]) -> List[str]:
         """

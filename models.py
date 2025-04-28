@@ -15,10 +15,20 @@ logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
+class JobDescription(Base):
+    __tablename__ = 'job_descriptions'
+    id = Column(Integer, primary_key=True)
+    job_id = Column(String(50), nullable=False, unique=True)
+    title = Column(String(100), nullable=False)
+    experience_years = Column(Integer, nullable=False)
+    description = Column(String(10000), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 class Candidate(Base):
     __tablename__ = 'candidates'
     id = Column(Integer, primary_key=True)
-    job_id = Column(String(50), nullable=False)
+    job_id = Column(String(50), ForeignKey('job_descriptions.job_id'), nullable=False)
     status = Column(String(50), nullable=False)
     application_date = Column(DateTime, nullable=False, default=datetime.utcnow)
     skills = Column(JSON)

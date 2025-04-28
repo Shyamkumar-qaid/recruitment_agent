@@ -5,21 +5,81 @@ from .resume_agent import ResumeAgent
 from .gap_agent import GapAgent
 from .tech_eval_agent import TechEvalAgent
 from models import Session, Candidate, AuditLog
-from langchain_community.llms import Ollama
 import os
 from dotenv import load_dotenv
+
+# Import the centralized LLM service
+from services.llm_service import create_llm_service
 
 load_dotenv()
 
 class AnalysisCoordinator:
     def __init__(self):
-        self.resume_agent = ResumeAgent()
-        self.gap_agent = GapAgent()
-        self.tech_agent = TechEvalAgent()
+        self.resume_agent = None
+        self.gap_agent = None
+        self.tech_agent = None
         
-        # Initialize orchestrator agent
-        # Get model name from environment variable with fallback
-        model_name = os.getenv("OLLAMA_MODEL", "phi3")
+        # Default model configuration
+        self.model_config = {
+            "provider": "ollama",
+            "model_name": os.getenv("OLLAMA_MODEL", "phi3"),
+            "base_url": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        }
+        
+        # Initialize LLM service with default configuration
+        self.llm_service = create_llm_service(self.model_config)
+        
+        # Initialize orchestrator agent with default model
+        self.agent = Agent(
+            role='Recruitment Process Orchestrator',
+            goal='Coordinate the complete candidate evaluation process',
+            backstory='Expert in managing and coordinating recruitment workflows',
+            verbose=True,
+            allow_delegation=True,
+            llm=f"ollama/{self.model_config['model_name']}"
+        )
+    
+    def _initialize_agents(self, model_config=None):
+        """Initialize agents with the appropriate model configuration"""
+        if model_config:
+            self.model_config.update(model_config)
+            # Reinitialize LLM service with updated configuration
+            self.llm_service = create_llm_service(self.model_config)
+        
+        # Set API keys directly
+        provider = self.model_config.get("provider", "ollama").lower()
+        api_key = self.model_config.get("api_key")
+        
+        if provider in ["openai", "openrouter"] and api_key:
+            os.environ["OPENAI_API_KEY"] = api_key
+            print(f"Set OPENAI_API_KEY environment variable for {provider} in AnalysisCoordinator._initialize_agents")
+        
+        # Initialize agents with the current model configuration
+        self.resume_agent = ResumeAgent(model_config=self.model_config)
+        self.gap_agent = GapAgent(model_config=self.model_config)
+        self.tech_agent = TechEvalAgent(model_config=self.model_config)
+        
+        # Get provider and model name for CrewAI agent
+        provider = self.model_config.get("provider", "ollama").lower()
+        model_name = self.model_config.get("model_name", os.getenv("OLLAMA_MODEL", "phi3"))
+        
+        # Map provider to CrewAI format
+        provider_map = {
+            "ollama": "ollama",
+            "openai": "openai",
+            "openrouter": "openai",  # OpenRouter uses OpenAI-compatible API
+            "huggingface": "huggingface"
+        }
+        
+        crewai_provider = provider_map.get(provider, "ollama")
+        
+        # Set API keys directly
+        if provider in ["openai", "openrouter"] and "api_key" in self.model_config:
+            os.environ["OPENAI_API_KEY"] = self.model_config["api_key"]
+            print(f"Set OPENAI_API_KEY environment variable for {provider} in AnalysisCoordinator.__init__")
+            
+        # Update orchestrator agent with the appropriate provider/model
+        print(f"Initializing AnalysisCoordinator with {crewai_provider}/{model_name}")
         
         self.agent = Agent(
             role='Recruitment Process Orchestrator',
@@ -27,9 +87,9 @@ class AnalysisCoordinator:
             backstory='Expert in managing and coordinating recruitment workflows',
             verbose=True,
             allow_delegation=True,
-            # Use the litellm format: provider/model
-            llm="ollama/phi3"
+            llm=f"{crewai_provider}/{model_name}"
         )
+        print(f"AnalysisCoordinator initialized with {crewai_provider} model: {model_name}")
     
     def log_audit(self, session: Session, candidate_id: int, action: str, details: Dict[str, Any]) -> None:
         """Record an action in the audit trail"""
@@ -46,8 +106,18 @@ class AnalysisCoordinator:
             session.rollback()
             print(f"Error logging audit: {str(e)}")
     
-    def process_application(self, resume_path: str, job_id: str, job_description_content: str) -> Dict[str, Any]: # Changed job_id type to str
+    def process_application(self, resume_path: str, job_id: str, job_description_content: str, model_config=None) -> Dict[str, Any]:
         """Main entry point for processing a new application"""
+        # Import our API key manager utility
+        from utils.api_key_manager import set_api_keys_from_config
+        
+        # Set API keys directly instead of using context manager
+        set_api_keys_from_config(model_config)
+        print(f"Processing application with API keys from config")
+            
+        # Initialize agents with the provided model configuration
+        self._initialize_agents(model_config)
+        
         session = Session()
         # Initialize progress tracking
         progress_steps = [
@@ -68,11 +138,16 @@ class AnalysisCoordinator:
             session.commit()
             
             # Log initial request
+            model_type = "OpenAI" if self.model_config.get("use_openai", False) else "Local LLM"
             self.log_audit(
                 session=session,
                 candidate_id=candidate.id,
                 action='application_received',
-                details={'job_id': job_id, 'resume_file': resume_path}
+                details={
+                    'job_id': job_id, 
+                    'resume_file': resume_path,
+                    'model_type': model_type
+                }
             )
             
             # Process resume

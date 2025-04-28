@@ -1,18 +1,44 @@
 from crewai import Agent
 from tools.document_processing import DocumentProcessor
 from tools.llm_tools import LLMTools
-from langchain_community.llms import Ollama
 import os
 from dotenv import load_dotenv
+
+# Import the centralized LLM service
+from services.llm_service import create_llm_service
 
 load_dotenv()
 
 class ResumeAgent:
-    def __init__(self):
+    def __init__(self, model_config=None):
         self.doc_processor = DocumentProcessor()
-        self.llm_tools = LLMTools()
-        # Get model name from environment variable with fallback
-        model_name = os.getenv("OLLAMA_MODEL", "phi3")
+        self.llm_tools = LLMTools(model_config)
+        self.model_config = model_config or {}
+        
+        # Create LLM service from model config
+        self.llm_service = create_llm_service(model_config)
+        
+        # Get provider and model name for CrewAI agent
+        provider = self.model_config.get("provider", "ollama").lower()
+        
+        # Map provider to CrewAI format
+        provider_map = {
+            "ollama": "ollama",
+            "openai": "openai",
+            "openrouter": "openai",  # OpenRouter uses OpenAI-compatible API
+            "huggingface": "huggingface"
+        }
+        
+        crewai_provider = provider_map.get(provider, "ollama")
+        model_name = self.model_config.get("model_name", os.getenv("OLLAMA_MODEL", "phi3"))
+        
+        # Set API keys directly
+        if provider in ["openai", "openrouter"] and "api_key" in self.model_config:
+            os.environ["OPENAI_API_KEY"] = self.model_config["api_key"]
+            print(f"Set OPENAI_API_KEY environment variable for {provider} in ResumeAgent.__init__")
+            
+        # Initialize CrewAI agent with the appropriate provider/model
+        print(f"Initializing ResumeAgent with {crewai_provider}/{model_name}")
         
         self.agent = Agent(
             role='Resume Processing Expert',
@@ -20,9 +46,9 @@ class ResumeAgent:
             backstory='Specialized in parsing and understanding resumes',
             verbose=True,
             allow_delegation=False,
-            # Use the litellm format: provider/model
-            llm="ollama/phi3"
+            llm=f"{crewai_provider}/{model_name}"
         )
+        print(f"ResumeAgent initialized with {crewai_provider} model: {model_name}")
     
     def process(self, file_path, job_context):
         try:

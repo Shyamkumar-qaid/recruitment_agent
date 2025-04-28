@@ -2,12 +2,14 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 from crewai import Agent, Task
 from tools.llm_tools import LLMTools
-from langchain_community.llms import Ollama
 import os
 import re
 import json
 import logging
 from dotenv import load_dotenv
+
+# Import the centralized LLM service
+from services.llm_service import create_llm_service
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -26,21 +28,44 @@ class GapAgent:
     - Recommendations for improvement
     """
     
-    def __init__(self):
-        self.llm_tools = LLMTools()
-        # Get model name from environment variable with fallback
-        model_name = os.getenv("OLLAMA_MODEL", "phi3")
+    def __init__(self, model_config=None):
+        self.model_config = model_config or {}
+        self.llm_tools = LLMTools(model_config)
         
-        # Use the correct format for litellm: prefix the model name with the provider
+        # Create LLM service from model config
+        self.llm_service = create_llm_service(model_config)
+        
+        # Get provider and model name for CrewAI agent
+        provider = self.model_config.get("provider", "ollama").lower()
+        
+        # Map provider to CrewAI format
+        provider_map = {
+            "ollama": "ollama",
+            "openai": "openai",
+            "openrouter": "openai",  # OpenRouter uses OpenAI-compatible API
+            "huggingface": "huggingface"
+        }
+        
+        crewai_provider = provider_map.get(provider, "ollama")
+        model_name = self.model_config.get("model_name", os.getenv("OLLAMA_MODEL", "phi3"))
+        
+        # Set API keys directly
+        if provider in ["openai", "openrouter"] and "api_key" in self.model_config:
+            os.environ["OPENAI_API_KEY"] = self.model_config["api_key"]
+            print(f"Set OPENAI_API_KEY environment variable for {provider} in GapAgent.__init__")
+            
+        # Initialize CrewAI agent with the appropriate provider/model
+        print(f"Initializing GapAgent with {crewai_provider}/{model_name}")
+        
         self.agent = Agent(
             role='Gap Analysis Expert',
             goal='Analyze gaps between candidate qualifications and job requirements',
             backstory='Specialized in identifying skill gaps and providing recommendations',
             verbose=True,
             allow_delegation=False,
-            llm="ollama/phi3"  # Use the litellm format: provider/model
+            llm=f"{crewai_provider}/{model_name}"
         )
-        logger.info(f"Gap Analysis Agent initialized with model: {model_name}")
+        logger.info(f"Gap Analysis Agent initialized with {crewai_provider} model: {model_name}")
     
     def analyze(self, resume_data: Dict[str, Any], job_description: str) -> Dict[str, Any]:
         """
@@ -53,6 +78,13 @@ class GapAgent:
         Returns:
             Dictionary with analysis results or error information
         """
+        # Set API keys directly
+        provider = self.model_config.get("provider", "ollama").lower()
+        api_key = self.model_config.get("api_key")
+        
+        if provider in ["openai", "openrouter"] and api_key:
+            os.environ["OPENAI_API_KEY"] = api_key
+            print(f"Set OPENAI_API_KEY environment variable for {provider} in GapAgent.analyze")
         logger.info("Starting gap analysis")
         
         # Validate inputs
@@ -176,35 +208,40 @@ NO other text, NO explanations, NO markdown.
             return None, "Empty response from LLM"
         
         try:
-            # Try finding JSON within potentially messy output
-            json_match = re.search(r'\{.*\}', raw_output, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(0)
-                parsed_result = json.loads(json_str)
-            else:
-                # Fallback: try parsing the whole string
-                parsed_result = json.loads(raw_output)
+            # Use the LLM service's JSON parser
+            parsed_result = self.llm_service.parse_json_output(raw_output)
+            
+            if not parsed_result:
+                return None, "Failed to parse LLM output as JSON"
             
             # Validate the structure
-            required_fields = ['gaps_summary']
-            missing_fields = [field for field in required_fields if field not in parsed_result]
+            required_fields = ['gaps_summary', 'gap_summary']  # Accept either field name
+            found_fields = [field for field in required_fields if field in parsed_result]
             
-            if missing_fields:
-                return None, f"LLM output missing required fields: {missing_fields}"
+            if not found_fields:
+                return None, f"LLM output missing required summary field"
+            
+            # Normalize field names if needed
+            if 'gap_summary' in parsed_result and 'gaps_summary' not in parsed_result:
+                parsed_result['gaps_summary'] = parsed_result['gap_summary']
                 
             if not isinstance(parsed_result.get('gaps_summary'), str):
                 return None, "gaps_summary must be a string"
                 
             # Ensure all fields are of the expected type
-            list_fields = ['missing_skills', 'experience_gaps', 'strengths', 'recommendations']
+            list_fields = ['missing_skills', 'experience_gaps', 'missing_experience', 'strengths', 'recommendations', 'improvements']
             for field in list_fields:
                 if field in parsed_result and not isinstance(parsed_result[field], list):
                     parsed_result[field] = [parsed_result[field]] if parsed_result[field] else []
             
-            return parsed_result, None
+            # Normalize field names for consistency
+            if 'missing_experience' in parsed_result and 'experience_gaps' not in parsed_result:
+                parsed_result['experience_gaps'] = parsed_result['missing_experience']
+                
+            if 'improvements' in parsed_result and 'recommendations' not in parsed_result:
+                parsed_result['recommendations'] = parsed_result['improvements']
             
-        except json.JSONDecodeError as e:
-            return None, f"Failed to parse LLM output as JSON: {str(e)}"
+            return parsed_result, None
             
         except Exception as e:
             return None, f"Error processing LLM output: {str(e)}"
